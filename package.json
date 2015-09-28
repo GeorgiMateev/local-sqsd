@@ -1,0 +1,17 @@
+{
+  "name": "local-sqsd",
+  "version": "1.0.0",
+  "main": "app.js",
+  "keywords": [
+    "AWS",
+    "Beanstalk",
+    "worker",
+    "sqsd"
+  ],
+  "author": "Georgi Mateev",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.2.4",
+    "config": "^1.16.0"
+  }
+}
