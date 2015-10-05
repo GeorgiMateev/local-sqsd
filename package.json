@@ -12,6 +12,7 @@
   "license": "MIT",
   "dependencies": {
     "aws-sdk": "^2.2.4",
+    "chalk": "^1.1.1",
     "config": "^1.16.0"
   }
 }

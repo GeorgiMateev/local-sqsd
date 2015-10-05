@@ -1,4 +1,6 @@
 var config = require('config');
+var chalk = require('chalk');
+var os = require("os");
 var request = require('request');
 var AWS = require('aws-sdk');
 
@@ -20,6 +22,9 @@ var sqs = new AWS.SQS({
     apiVersion: '2012-11-05'
 });
 
+console.log(chalk.green('Started to send messages.'));
+console.log(os.EOL);
+
 setInterval(function () {
     var params = {
         QueueUrl: queueUrl,
@@ -32,7 +37,9 @@ setInterval(function () {
 
     sqs.receiveMessage(params, function(err, data) {
         if (err) {
-            console.log(err, err.stack);
+            console.log(chalk.red("Error when recieving a message from the queue:"));
+            console.log(chalk.red(err));
+            console.log(os.EOL);
         }
         else if(data.Messages) {
             for (var i = 0; i < data.Messages.length; i++) {
@@ -93,7 +100,9 @@ function getBody (message) {
 
 function sendMessageCallback (err, response, body, receiptHandle) {
     if (err) {
-        console.log(err, err.stack);
+        console.log(chalk.red('Error when sending request to the worker:'));
+        console.log(chalk.red(err, err.stack.replace("\n", os.EOL)));
+        console.log(os.EOL);
         return;
     }
 
@@ -102,6 +111,8 @@ function sendMessageCallback (err, response, body, receiptHandle) {
     }
     else {
         // Do nothing. Message will be returned to the queue and eventually sent to the dead messaged queue.
+        console.log(chalk.yellow('The worker responded with status code: ' + response.statusCode + ' - ' + response.statusMessage));
+        console.log(os.EOL);
     }
 }
 
@@ -112,7 +123,9 @@ function deleteMessage (receiptHandle) {
     };
     sqs.deleteMessage(params, function(err, data) {
         if (err) {
-            console.log(err, err.stack);
+            console.log(chalk.red('Error when deleting a message from the queue:'));
+            console.log(chalk.red(err));
+            console.log(os.EOL);
             return;
         }
     });
