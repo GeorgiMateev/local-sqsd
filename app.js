@@ -1,6 +1,7 @@
 var config = require('config');
 var chalk = require('chalk');
-var os = require("os");
+var os = require('os');
+var Q = require('q');
 var request = require('request');
 var AWS = require('aws-sdk');
 
@@ -14,6 +15,7 @@ var inactivityTimeout = config.has('sqsd.inactivityTimeout') ? config.get('sqsd.
 var pingInterval = config.has('sqsd.pingInterval') ? config.get('sqsd.pingInterval') : 1000;
 var waitTime = config.has('sqsd.waitTime') ? config.get('sqsd.waitTime') : 1;
 var workerUrl = config.get('sqsd.workerUrl');
+var waitToBeProcessed = config.has('sqsd.waitToBeProcessed') ? config.get('sqsd.waitToBeProcessed') : false;
 
 var sqs = new AWS.SQS({
     accessKeyId: accessKey,
@@ -22,10 +24,12 @@ var sqs = new AWS.SQS({
     apiVersion: '2012-11-05'
 });
 
-console.log(chalk.green('Started to send messages.'));
+console.log(chalk.green('Starting to send messages.'));
 console.log(os.EOL);
 
-setInterval(function () {
+ping(function () {
+    var deferred = Q.defer();
+
     var params = {
         QueueUrl: queueUrl,
         AttributeNames: ['All'],
@@ -40,15 +44,40 @@ setInterval(function () {
             console.log(chalk.red("Error when recieving a message from the queue:"));
             console.log(chalk.red(err));
             console.log(os.EOL);
+            
+            deferred.resolve();
         }
         else if(data.Messages) {
+            var messagesPromises = [];
             for (var i = 0; i < data.Messages.length; i++) {
                 var message = data.Messages[i];
-                sendMessageToWorker(message);
+                messagesPromises.push(sendMessageToWorker(message));
             }
+
+            Q.all(messagesPromises).then(function () {
+                deferred.resolve();
+            });
         }
     });
-}, pingInterval);
+
+    return deferred.promise;
+}, pingInterval, waitToBeProcessed);
+
+function ping(cb, pingInterval, waitToBeProcessed) {
+    if (waitToBeProcessed) {
+        repeat(cb);
+        setInterval(function () { }, 1000);
+    }
+    else {
+        setInterval(cb(), pingInterval);
+    }
+}
+
+function repeat (f) {
+    f().then(function () {
+        repeat(f);
+    });
+}
 
 function sendMessageToWorker (message) {
     var headers = getHeaders(message);
@@ -65,9 +94,13 @@ function sendMessageToWorker (message) {
 
     var receiptHandle = message.ReceiptHandle;
 
+    var deferred = Q.defer();
     request(options, function (err, response, body) {
         sendMessageCallback(err, response, body, receiptHandle);
+        deferred.resolve();
     });
+
+    return deferred.promise;
 }
 
 function getHeaders (message) {
