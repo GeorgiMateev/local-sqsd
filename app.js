@@ -1,3 +1,5 @@
+#! /usr/bin/env node
+
 var config = require('config');
 var chalk = require('chalk');
 var os = require('os');
@@ -10,12 +12,11 @@ var secretAccessKey = config.get('sqsd.secretAccessKey');
 var region = config.has('sqsd.region') ? config.get('sqsd.region') : "us-west-1";
 var queueUrl = config.get('sqsd.queueUrl');
 var maxNumberOfMessages = config.has('sqsd.maxNumberOfMessages') ? config.get('sqsd.maxNumberOfMessages') : 10;
-var visibilityTimeout = config.has('sqsd.visibilityTimeout') ? config.get('sqsd.visibilityTimeout') : 30;
-var inactivityTimeout = config.has('sqsd.inactivityTimeout') ? config.get('sqsd.inactivityTimeout') : 30;
-var pingInterval = config.has('sqsd.pingInterval') ? config.get('sqsd.pingInterval') : 1000;
-var waitTime = config.has('sqsd.waitTime') ? config.get('sqsd.waitTime') : 1;
+var visibilityTimeout = config.has('sqsd.visibilityTimeoutSec') ? config.get('sqsd.visibilityTimeoutSec') : 30;
+var inactivityTimeout = config.has('sqsd.inactivityTimeoutSec') ? config.get('sqsd.inactivityTimeoutSec') : 30;
+var pingInterval = config.has('sqsd.pingIntervalMs') ? config.get('sqsd.pingIntervalMs') : 1000;
+var waitTime = config.has('sqsd.waitTimeSec') ? config.get('sqsd.waitTimeSec') : 1;
 var workerUrl = config.get('sqsd.workerUrl');
-var waitToBeProcessed = config.has('sqsd.waitToBeProcessed') ? config.get('sqsd.waitToBeProcessed') : false;
 
 var sqs = new AWS.SQS({
     accessKeyId: accessKey,
@@ -24,7 +25,17 @@ var sqs = new AWS.SQS({
     apiVersion: '2012-11-05'
 });
 
-console.log(chalk.green('Starting to send messages.'));
+var argv = require('minimist')(process.argv.slice(2));
+
+if(argv.d) {
+    inactivityTimeout = 120 * 60;
+    console.log(chalk.green('Local SQSD started in debug mode.'));
+    console.log(chalk.yellow('You will have 2 hours to debug a message before timeout.'))
+}
+else {
+    console.log(chalk.green('Starting to send messages to '+ workerUrl));
+}
+
 console.log(os.EOL);
 
 ping(function () {
@@ -49,6 +60,12 @@ ping(function () {
         }
         else if(data.Messages) {
             var messagesPromises = [];
+
+            if(argv.d) {
+                console.log('Recieved ' + data.Messages.length + ' messages.');
+                console.log(os.EOL);
+            }
+
             for (var i = 0; i < data.Messages.length; i++) {
                 var message = data.Messages[i];
                 messagesPromises.push(sendMessageToWorker(message));
@@ -61,22 +78,27 @@ ping(function () {
     });
 
     return deferred.promise;
-}, pingInterval, waitToBeProcessed);
+}, pingInterval, argv.d);
 
-function ping(cb, pingInterval, waitToBeProcessed) {
-    if (waitToBeProcessed) {
-        repeat(cb);
-        setInterval(function () { }, 1000);
+function ping(cb, pingInterval, inDebug) {
+    if (inDebug) {
+        var readline = require('readline');
+
+        var rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+
+        console.log(chalk.green("Press Enter to send " + maxNumberOfMessages + " messages to "+ workerUrl));
+
+        rl.on('line', function () {
+            cb();
+            console.log(chalk.green("Press Enter to send " + maxNumberOfMessages + " messages to "+ workerUrl));
+        });
     }
     else {
-        setInterval(cb(), pingInterval);
+        setInterval(cb, pingInterval);
     }
-}
-
-function repeat (f) {
-    f().then(function () {
-        repeat(f);
-    });
 }
 
 function sendMessageToWorker (message) {
@@ -140,6 +162,9 @@ function sendMessageCallback (err, response, body, receiptHandle) {
     }
 
     if (response.statusCode === 200) {
+        if(argv.d) {
+            console.log('Message processed by the worker.');
+        }
         deleteMessage(receiptHandle);
     }
     else {
